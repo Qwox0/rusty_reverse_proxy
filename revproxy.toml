@@ -1,1 +1,12 @@
-[[route]]
+#:schema ./revproxy_taplo.json
+
+logging = true
+address = "[::]:3000"
+
+[tls]
+fullchain_path = "./fullchain.pem"
+privkey_path = "./privkey.pem"
+
+[[routes]]
+addr = { host = "my.domain.com:3000" }
+target = { host = "localhost:3333" }
