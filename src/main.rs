@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    extract::{FromRequest, FromRequestParts, Host, Path, Request, State},
+    extract::{ConnectInfo, FromRequestParts, Host, Request, State},
     http::{request::Parts, StatusCode},
     response::Response,
     Router,
@@ -8,11 +8,10 @@ use axum::{
 use rusty_reverse_proxy::{
     app_state::AppState,
     config::{ReverseProxyConfig, RouteConfig},
-    debug::DebugBuf,
+    debug::{debugln, DebugBuf},
     error::ReverseProxyError,
-    req,
 };
-use std::env;
+use std::{env, net::SocketAddr};
 
 pub async fn axum_request_to_reqwest(
     target_host: &str,
@@ -48,13 +47,32 @@ pub fn reqwest_response_to_axum(res: reqwest::Response) -> axum::response::Respo
 }
 
 pub async fn request_send(
-    target_host: &str,
     request: Request<axum::body::Body>,
+    target_host: &str,
     state: &AppState,
 ) -> Result<axum::response::Response, ReverseProxyError> {
-    let debug_msg = DebugBuf::new().axum_req_with_scheme(&request, state.config.request_scheme());
+    let (mut parts, body) = request.into_parts();
+    let req_addr = ConnectInfo::<SocketAddr>::from_request_parts(&mut parts, &()).await.unwrap().0;
 
-    let request = axum_request_to_reqwest(target_host, request, state).await?;
+    let debug_msg = DebugBuf::new().display(req_addr).write_str(": ");
+    let request = Request::from_parts(parts, body);
+    let debug_msg = debug_msg.axum_req_with_scheme(&request, state.config.request_scheme());
+
+    let (Parts { method, uri, headers, version, .. }, body) = request.into_parts();
+
+    let reqwest_body = axum::body::to_bytes(body, usize::MAX)
+        .await
+        .map_err(ReverseProxyError::RequestBodyTooLarge)?;
+
+    let url = format!("http://{target_host}{uri}");
+
+    let request = state
+        .reqwest_client
+        .request(method, url)
+        .version(version)
+        .headers(headers)
+        .body(reqwest_body)
+        .build()?;
 
     debug_msg.to().reqwest_req(&request).infoln();
 
@@ -70,19 +88,16 @@ async fn reverse_proxy(
     State(state): State<&AppState>,
     request: Request,
 ) -> Result<Response, StatusCode> {
-    // println!("{:?}", request);
+    debugln(&request);
     let (mut parts, body) = request.into_parts();
     let host = Host::from_request_parts(&mut parts, &()).await.unwrap();
-    // println!("HOST: {:?}", host);
-    // println!("PATH: {:?}", parts.uri);
+
     let request = Request::from_parts(parts, body);
 
-    let route = state.config.routes.iter().find(|route| route.addr.host.as_ref() == host.0);
-
-    match route {
+    match state.config.routes.iter().find(|route| route.request.host.as_ref() == host.0) {
         Some(RouteConfig { target, .. }) => {
-            request_send(target.host.as_ref(), request, state).await.map_err(|err| {
-                DebugBuf::new().val(err).errorln();
+            request_send(request, target.host.as_ref(), state).await.map_err(|err| {
+                DebugBuf::new().display(err).errorln();
                 StatusCode::INTERNAL_SERVER_ERROR
             })
         },
@@ -93,29 +108,40 @@ async fn reverse_proxy(
                 .not_found()
                 .infoln();
             Err(StatusCode::NOT_FOUND)
-        }, // TODO
+        },
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), ReverseProxyError> {
+async fn server() -> Result<(), ReverseProxyError> {
     let arg1 = env::args().skip(1).next();
     let config = ReverseProxyConfig::new(arg1)?;
-    println!("config: {:?}", config);
+    DebugBuf::new().display("Config: ").debug(&config).infoln();
     let state = AppState::new(config).leak();
 
-    let app = Router::new().fallback(reverse_proxy).with_state(state);
+    let router = Router::new();
+    let router = router;
+    let app = router
+        .fallback(reverse_proxy)
+        .with_state(state)
+        .into_make_service_with_connect_info::<SocketAddr>();
 
     let addr = state.config.address;
     match state.config.tls().await {
         Some(tls_config) => {
-            println!("listening on https://{}", addr);
-            axum_server::bind_rustls(addr, tls_config).serve(app.into_make_service()).await
+            DebugBuf::new().display("listening on https://").display(addr).infoln();
+            axum_server::bind_rustls(addr, tls_config).serve(app).await
         },
         None => {
-            println!("listening on http://{}", addr);
-            axum_server::bind(addr).serve(app.into_make_service()).await
+            DebugBuf::new().display("listening on http://").display(addr).infoln();
+            axum_server::bind(addr).serve(app).await
         },
     }
     .map_err(ReverseProxyError::AxumServeError)
+}
+
+#[tokio::main]
+async fn main() {
+    if let Err(err) = server().await {
+        DebugBuf::new().display(err).errorln();
+    }
 }

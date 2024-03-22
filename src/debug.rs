@@ -2,7 +2,7 @@ use chrono::{
     format::{DelayedFormat, StrftimeItems},
     Local,
 };
-use std::fmt::{Arguments, Display, Write};
+use std::fmt::{Arguments, Debug, Display, Write};
 
 pub struct DebugBuf {
     buf: String,
@@ -61,8 +61,12 @@ impl DebugBuf {
         self.write_str(" -> ")
     }
 
-    pub fn val(self, val: impl Display) -> Self {
+    pub fn display(self, val: impl Display) -> Self {
         self.write_fmt(format_args!("{val}"))
+    }
+
+    pub fn debug(self, val: impl Debug) -> Self {
+        self.write_fmt(format_args!("{val:?}"))
     }
 
     pub fn reqwest_req_mut(&mut self, req: &reqwest::Request) {
@@ -80,23 +84,31 @@ impl DebugBuf {
         self.write_str("404 NOT FOUND")
     }
 
-    pub fn debugln(&self) {
-        eprintln!("[DEBUG] {}", self.buf)
+    pub fn debugln(self) -> Self {
+        eprintln!("\x1b[92;1m[DEBUG]\x1b[0m {}", self.buf);
+        self
     }
 
-    pub fn infoln(&self) {
-        eprintln!("[ INFO] {}", self.buf)
+    pub fn infoln(self) -> Self {
+        eprintln!("\x1b[96;1m[ INFO]\x1b[0m {}", self.buf);
+        self
     }
 
-    pub fn warnln(&self) {
-        eprintln!("[ WARN] {}", self.buf)
+    pub fn warnln(self) -> Self {
+        eprintln!("\x1b[93;1m[ WARN]\x1b[0m {}", self.buf);
+        self
     }
 
-    pub fn errorln(&self) {
-        eprintln!("[ERROR] {}", self.buf)
+    pub fn errorln(self) -> Self {
+        eprintln!("\x1b[91;1m[ERROR]\x1b[0m {}", self.buf);
+        self
     }
 }
 
 pub fn display_now() -> DelayedFormat<StrftimeItems<'static>> {
     Local::now().format("%Y-%m-%d %H:%M:%S.%3f")
+}
+
+pub fn debugln(val: impl Debug) {
+    DebugBuf::new().debug(val).debugln();
 }
