@@ -1,0 +1,92 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "revproxy config",
+    "type": "object",
+    "properties": {
+        "logging": {
+            "default": true,
+            "type": "boolean"
+        },
+        "address": {
+            "default": "127.0.0.1:3000",
+            "type": "string"
+        },
+        "router_page": {
+            "allOf": [
+                {
+                    "$ref": "#/definitions/Address"
+                }
+            ]
+        },
+        "tls": {
+            "title": "TLS configuration",
+            "description": "configure the reverse proxy to use a TLS certificate",
+            "type": "object",
+            "properties": {
+                "fullchain_path": {
+                    "description": "fullchain_path description",
+                    "type": "string"
+                },
+                "privkey_path": {
+                    "description": "privkey_path description",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "routes": {
+            "default": [],
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/RouteConfig"
+            }
+        }
+    },
+    "additionalProperties": false,
+    "definitions": {
+        "Address": {
+            "title": "Address",
+            "description": "Address description",
+            "type": "object",
+            "properties": {
+                "host": {
+                    "description": "address of the host (incluing port)",
+                    "type": "string"
+                },
+                "path": {
+                    "description": "path description",
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
+        "RouteConfig": {
+            "title": "RouteConfig",
+            "description": "RouteConfig description",
+            "type": "object",
+            "properties": {
+                "request": {
+                    "description": "request description",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/Address"
+                        }
+                    ]
+                },
+                "target": {
+                    "description": "target description",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/Address"
+                        }
+                    ]
+                }
+            },
+            "required": [
+                "request",
+                "target"
+            ],
+            "additionalProperties": false
+        }
+    }
+}

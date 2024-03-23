@@ -1,15 +1,18 @@
 use axum::{
     body::Body,
-    extract::{ConnectInfo, FromRequestParts, Host, Request, State},
+    extract::{ConnectInfo, Host, Request, State},
     http::{request::Parts, StatusCode},
+    middleware,
     response::Response,
     Router,
 };
 use rusty_reverse_proxy::{
     app_state::AppState,
     config::{ReverseProxyConfig, RouteConfig},
-    debug::{debugln, DebugBuf},
+    debug::DebugBuf,
     error::ReverseProxyError,
+    router_page::router_page,
+    util::RequestExtract,
 };
 use std::{env, net::SocketAddr};
 
@@ -51,12 +54,11 @@ pub async fn request_send(
     target_host: &str,
     state: &AppState,
 ) -> Result<axum::response::Response, ReverseProxyError> {
-    let (mut parts, body) = request.into_parts();
-    let req_addr = ConnectInfo::<SocketAddr>::from_request_parts(&mut parts, &()).await.unwrap().0;
-
-    let debug_msg = DebugBuf::new().display(req_addr).write_str(": ");
-    let request = Request::from_parts(parts, body);
-    let debug_msg = debug_msg.axum_req_with_scheme(&request, state.config.request_scheme());
+    let (request, req_addr) = request.extract::<ConnectInfo<SocketAddr>>().await.unwrap();
+    let debug_msg = DebugBuf::new()
+        .display(req_addr.0)
+        .write_str(": ")
+        .axum_req_with_scheme(&request, state.config.request_scheme());
 
     let (Parts { method, uri, headers, version, .. }, body) = request.into_parts();
 
@@ -88,11 +90,8 @@ async fn reverse_proxy(
     State(state): State<&AppState>,
     request: Request,
 ) -> Result<Response, StatusCode> {
-    debugln(&request);
-    let (mut parts, body) = request.into_parts();
-    let host = Host::from_request_parts(&mut parts, &()).await.unwrap();
-
-    let request = Request::from_parts(parts, body);
+    // debugln(&request);
+    let (request, host) = request.extract::<Host>().await.unwrap();
 
     match state.config.routes.iter().find(|route| route.request.host.as_ref() == host.0) {
         Some(RouteConfig { target, .. }) => {
@@ -102,7 +101,10 @@ async fn reverse_proxy(
             })
         },
         None => {
+            let (request, req_addr) = request.extract::<ConnectInfo<SocketAddr>>().await.unwrap();
             DebugBuf::new()
+                .display(req_addr.0)
+                .write_str(": ")
                 .axum_req_with_scheme(&request, state.config.request_scheme())
                 .to()
                 .not_found()
@@ -118,10 +120,9 @@ async fn server() -> Result<(), ReverseProxyError> {
     DebugBuf::new().display("Config: ").debug(&config).infoln();
     let state = AppState::new(config).leak();
 
-    let router = Router::new();
-    let router = router;
-    let app = router
+    let app = Router::new()
         .fallback(reverse_proxy)
+        .layer(middleware::from_fn_with_state(state, router_page))
         .with_state(state)
         .into_make_service_with_connect_info::<SocketAddr>();
 

@@ -1,14 +1,11 @@
-use crate::error::ConfigError;
+use crate::{error::ConfigError, util::RequestExtract};
+use axum::extract::{Host, Request};
 use axum_server::tls_rustls::RustlsConfig;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::{
-    fs, io,
-    net::SocketAddr,
-    path::{Path, PathBuf},
-};
+use std::{fs, net::SocketAddr, path::Path};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RouteInfo {
+pub struct Address {
     pub host: Box<str>,
     #[serde(default)]
     pub path: Box<str>,
@@ -16,8 +13,8 @@ pub struct RouteInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RouteConfig {
-    pub addr: RouteInfo,
-    pub target: RouteInfo,
+    pub request: Address,
+    pub target: Address,
 }
 
 #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +32,7 @@ pub struct ReverseProxyConfig {
         deserialize_with = "deserialize_socket_addr"
     )]
     pub address: SocketAddr,
+    pub router_page: Option<Address>,
     #[serde(rename = "tls")]
     pub tls_config: Option<TlsConfig>,
     pub routes: Box<[RouteConfig]>,
@@ -45,6 +43,7 @@ impl Default for ReverseProxyConfig {
         Self {
             logging: true,
             address: "[::]:8080".parse().unwrap(),
+            router_page: None,
             tls_config: None,
             routes: Default::default(),
         }
@@ -97,4 +96,22 @@ where S: Serializer {
 pub fn deserialize_socket_addr<'de, D>(d: D) -> Result<SocketAddr, D::Error>
 where D: Deserializer<'de> {
     <Box<str>>::deserialize(d)?.parse().map_err(serde::de::Error::custom)
+}
+
+impl Address {
+    pub fn new(host: Box<str>, path: Box<str>) -> Address {
+        Address { host, path }
+    }
+
+    pub async fn extract_from(req: Request) -> (Self, Request) {
+        let (req, host) = req.extract::<Host>().await.unwrap();
+        let path = req.uri().path();
+        (Self::new(host.0.into(), path.into()), req)
+    }
+
+    /// `host` must be equal
+    /// `path` must start with `other.path`
+    pub fn matches(&self, other: &Address) -> bool {
+        self.host == other.host && self.path.starts_with(other.path.as_ref())
+    }
 }

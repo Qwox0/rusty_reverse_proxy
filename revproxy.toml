@@ -2,11 +2,12 @@
 
 logging = true
 address = "[::]:3000"
+router_page = { host = "my.domain.com", path = "/" }
 
 [tls]
 fullchain_path = "./fullchain.pem"
 privkey_path = "./privkey.pem"
 
 [[routes]]
-addr = { host = "my.domain.com:3000" }
+request = { host = "server1.my.domain.com:3000" }
 target = { host = "localhost:3333" }
