@@ -69,6 +69,10 @@ impl DebugBuf {
         self.write_fmt(format_args!("{val:?}"))
     }
 
+    pub fn debug_alt(self, val: impl Debug) -> Self {
+        self.write_fmt(format_args!("{val:#?}"))
+    }
+
     pub fn reqwest_req_mut(&mut self, req: &reqwest::Request) {
         let method = req.method();
         let uri = req.url();

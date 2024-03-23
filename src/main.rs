@@ -117,7 +117,7 @@ async fn reverse_proxy(
 async fn server() -> Result<(), ReverseProxyError> {
     let arg1 = env::args().skip(1).next();
     let config = ReverseProxyConfig::new(arg1)?;
-    DebugBuf::new().display("Config: ").debug(&config).infoln();
+    DebugBuf::new().debug_alt(&config).infoln();
     let state = AppState::new(config).leak();
 
     let app = Router::new()
