@@ -1,4 +1,9 @@
-use crate::{app_state::AppState, config::Address, debug::DebugBuf, util::RequestExtract};
+use crate::{
+    app_state::AppState,
+    config::{Address, ReverseProxyConfig, RouteConfig},
+    debug::DebugBuf,
+    util::RequestExtract,
+};
 use axum::{
     extract::{ConnectInfo, Request, State},
     middleware::Next,
@@ -25,15 +30,34 @@ pub async fn router_page(State(state): State<&AppState>, req: Request, next: Nex
         .infoln();
 
     let scheme = state.config.request_scheme();
-    let router_page = "<h1>Reverse Proxy Router</h1>\n<ul>\n".to_string()
-        + &state
-            .config
-            .routes
-            .iter()
-            .map(|route| format!("{scheme}://{}{}", route.request.host, route.request.path))
-            .map(|url| format!("<li><a href=\"{url}\">{url}</a></li>\n",))
-            .collect::<String>()
-        + "</ul>";
+    let routes = state
+        .config
+        .routes
+        .iter()
+        .map(|route| format!("{scheme}://{}{}", route.request.host, route.request.path))
+        .map(|url| format!("<li><a href=\"{url}\">{url}</a></li>\n",))
+        .collect::<String>();
 
-    Html(router_page).into_response()
+    Html(format!(
+        r#"<!DOCTYPE HTML>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>Reverse Proxy Router</title>
+    <meta name="description" content="Lists all available routes managed by the reverse proxy.">
+</head>
+
+<body>
+    <h1>Reverse Proxy Router</h1>
+    <ul>
+        {routes}
+    </ul>
+</body>
+
+</html>"#
+    ))
+    .into_response()
 }
